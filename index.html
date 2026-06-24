@@ -24,10 +24,11 @@
   .ctrl label b{color:var(--fg);font-variant-numeric:tabular-nums;}
   input[type=range]{width:100%;accent-color:var(--green);}
   .row{display:flex;align-items:center;gap:18px;margin-top:18px;flex-wrap:wrap;}
-  .toggle{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--fg);}
+  .toggle{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--fg);cursor:pointer;}
+  .toggle input{accent-color:var(--green);width:16px;height:16px;}
   .legend{display:flex;gap:18px;font-size:13px;color:var(--mute);margin:14px 0 0;flex-wrap:wrap;}
   .legend span{display:inline-flex;align-items:center;gap:6px;}
-  .sw{width:14px;height:4px;border-radius:2px;display:inline-block;}
+  .sw{width:14px;height:11px;border-radius:3px;display:inline-block;}
   button{background:#21262d;color:var(--fg);border:1px solid var(--line);border-radius:8px;
          padding:8px 14px;font-size:13px;cursor:pointer;}
   button:hover{border-color:var(--green);}
@@ -42,12 +43,16 @@
   <p class="sub">Why memory is doomed to boom &amp; bust — the cycle isn't bad luck, it's the structure. Drag the sliders.</p>
 
   <div class="card">
-    <canvas id="chart" width="1280" height="640"></canvas>
+    <canvas id="chart" width="1280" height="660"></canvas>
     <div class="legend">
-      <span><i class="sw" style="background:var(--green)"></i> consolidated Big-3 (wafer-cut discipline)</span>
-      <span><i class="sw" style="background:var(--red)"></i> fragmented (no discipline, 1990s)</span>
-      <span><i class="sw" style="background:var(--grey)"></i> total cost</span>
-      <span><i class="sw" style="background:var(--red);opacity:.5"></i> loss zone (price &lt; total cost)</span>
+      <span><i class="sw" style="background:rgba(22,199,132,.85)"></i> profit — price above total cost</span>
+      <span><i class="sw" style="background:rgba(234,57,67,.85)"></i> loss — price below total cost (glut)</span>
+      <span><i class="sw" style="background:var(--red);height:3px"></i> cash-cost floor</span>
+    </div>
+
+    <div class="row">
+      <label class="toggle"><input type="checkbox" id="compare"> Compare to the fragmented 1990s (no wafer-cut discipline)</label>
+      <button id="reset">Reset</button>
     </div>
 
     <div class="controls">
@@ -58,17 +63,14 @@
       <div class="ctrl"><label>Cash-cost floor (× total cost) <b id="vCash"></b></label><input id="cash" type="range" min="40" max="80" value="60"></div>
       <div class="ctrl"><label>AI-style demand boom <b id="vBoom"></b></label><input id="boom" type="range" min="0" max="30" value="16"></div>
       <div class="ctrl"><label>Demand air-pocket (downturn) <b id="vBust"></b></label><input id="bust" type="range" min="0" max="35" value="22"></div>
-      <div class="ctrl" style="display:flex;align-items:flex-end;">
-        <button id="reset">Reset to defaults</button>
-      </div>
     </div>
 
     <div class="note">
-      <b>What you're seeing:</b> a demand boom spikes price above total cost (fat margins) →
-      everyone builds fabs → that capacity lands <i>years late</i> → glut → price crashes into the
-      loss zone. The green line (today's Big-3) cuts wafers near the cash-cost floor, shaving the
-      trough; the red line (the fragmented 1990s) rides it all the way down. Crank the <b>capex lag</b>
-      or <b>greed</b> up and watch the cycle get more violent — the lag <i>is</i> the engine.
+      <b>Read it like this:</b> green = makers printing money, red = makers bleeding (selling below total cost).
+      A demand <b>boom</b> spikes the price → everyone builds fabs → that capacity lands <i>years late</i> → <b>glut</b>
+      → price crashes into the red → recovery overshoots into the next boom. Crank <b>capex lag</b> or <b>greed</b> up
+      and the swings get wilder — the lag <i>is</i> the engine. Tick "compare" to see how the fragmented 1990s rode the
+      busts all the way down (dashed), vs today's Big-3 cutting wafers at the floor.
     </div>
   </div>
 
@@ -110,46 +112,69 @@ function simulate(p, discipline){
   return Pr;
 }
 
+let geo;
 function draw(){
   const p=P();
-  const css=getComputedStyle(document.documentElement);
-  const C={green:css.getPropertyValue('--green').trim(),red:css.getPropertyValue('--red').trim(),
-           grey:css.getPropertyValue('--grey').trim(),fg:css.getPropertyValue('--fg').trim(),
-           mute:css.getPropertyValue('--mute').trim(),bg:css.getPropertyValue('--bg').trim()};
-  const W=cv.width,H=cv.height, m={l:70,r:140,t:24,b:50};
-  const x0=m.l,x1=W-m.r,y0=H-m.b,y1=m.t;
-  const yMin=0.3,yMax=2.0;
+  const c=getComputedStyle(document.documentElement);
+  const C={green:c.getPropertyValue('--green').trim(),red:c.getPropertyValue('--red').trim(),
+           grey:c.getPropertyValue('--grey').trim(),fg:c.getPropertyValue('--fg').trim(),
+           mute:c.getPropertyValue('--mute').trim(),bg:c.getPropertyValue('--bg').trim()};
+  const W=cv.width,H=cv.height, m={l:74,r:120,t:30,b:52};
+  const x0=m.l,x1=W-m.r,y0=H-m.b,y1=m.t, yMin=0.3,yMax=2.0;
   const X=t=>x0+(x1-x0)*t/(T-1);
   const Y=v=>y0+(y1-y0)*(v-yMin)/(yMax-yMin);
+  geo={X,Y,x0,x1,y0,y1};
   ctx.clearRect(0,0,W,H); ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+  const yTot=Y(1.0);
 
-  // loss band (cash..total)
-  ctx.fillStyle='rgba(234,57,67,0.10)';
-  ctx.fillRect(x0, Y(1.0), x1-x0, Y(p.cash)-Y(1.0));
+  const green=simulate(p,true);
+
+  // area to baseline, two-colour split at total cost via clipping
+  function areaPath(arr){ctx.beginPath();
+    arr.forEach((v,t)=>{const xx=X(t),yy=Y(v);t?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);});
+    ctx.lineTo(X(T-1),yTot); ctx.lineTo(X(0),yTot); ctx.closePath();}
+  ctx.save(); ctx.beginPath(); ctx.rect(x0,y1,x1-x0,yTot-y1); ctx.clip();
+  areaPath(green); ctx.fillStyle='rgba(22,199,132,0.30)'; ctx.fill(); ctx.restore();
+  ctx.save(); ctx.beginPath(); ctx.rect(x0,yTot,x1-x0,y0-yTot); ctx.clip();
+  areaPath(green); ctx.fillStyle='rgba(234,57,67,0.30)'; ctx.fill(); ctx.restore();
+
   // reference lines
   ctx.setLineDash([7,6]); ctx.lineWidth=2;
-  ctx.strokeStyle=C.grey; ctx.beginPath(); ctx.moveTo(x0,Y(1.0)); ctx.lineTo(x1,Y(1.0)); ctx.stroke();
+  ctx.strokeStyle=C.grey; ctx.beginPath(); ctx.moveTo(x0,yTot); ctx.lineTo(x1,yTot); ctx.stroke();
   ctx.strokeStyle=C.red;  ctx.beginPath(); ctx.moveTo(x0,Y(p.cash)); ctx.lineTo(x1,Y(p.cash)); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle=C.grey; ctx.font='15px sans-serif'; ctx.textBaseline='middle';
-  ctx.fillText('total cost', x1+10, Y(1.0));
-  ctx.fillStyle=C.red; ctx.fillText('cash-cost floor', x1+10, Y(p.cash));
+  ctx.font='14px sans-serif'; ctx.textBaseline='middle'; ctx.textAlign='left';
+  ctx.fillStyle=C.grey; ctx.fillText('total cost', x1+8, yTot);
+  ctx.fillStyle=C.red;  ctx.fillText('cash floor', x1+8, Y(p.cash));
 
   // y ticks
   ctx.fillStyle=C.mute; ctx.font='13px sans-serif'; ctx.textAlign='right';
   [0.5,1.0,1.5,2.0].forEach(v=>ctx.fillText(v.toFixed(1)+'×', x0-10, Y(v)));
-  ctx.textAlign='left';
 
-  const plot=(arr,color,w)=>{ctx.strokeStyle=color;ctx.lineWidth=w;ctx.lineJoin='round';
-    ctx.beginPath();arr.forEach((v,t)=>{const xx=X(t),yy=Y(v);t?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);});ctx.stroke();};
-  plot(simulate(p,false), C.red, 3);
-  plot(simulate(p,true),  C.green, 3.6);
+  // optional fragmented comparison (dashed)
+  if(document.getElementById('compare').checked){
+    const red=simulate(p,false);
+    ctx.setLineDash([8,6]); ctx.strokeStyle=C.red; ctx.lineWidth=2.4; ctx.lineJoin='round';
+    ctx.beginPath(); red.forEach((v,t)=>{const xx=X(t),yy=Y(v);t?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);}); ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
-  // axis labels
+  // hero line (consolidated, today)
+  ctx.strokeStyle=C.fg; ctx.lineWidth=3.4; ctx.lineJoin='round';
+  ctx.beginPath(); green.forEach((v,t)=>{const xx=X(t),yy=Y(v);t?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);}); ctx.stroke();
+
+  // dynamic phase labels: peak = BOOM, trough = GLUT
+  let iMax=1,iMin=1;
+  for(let t=2;t<T;t++){if(green[t]>green[iMax])iMax=t; if(green[t]<green[iMin])iMin=t;}
+  ctx.textAlign='center'; ctx.font='bold 14px sans-serif';
+  ctx.fillStyle=C.green; ctx.fillText('▲ BOOM', X(iMax), Y(green[iMax])-14);
+  ctx.fillStyle=C.red;   ctx.fillText('▼ GLUT', X(iMin), Y(green[iMin])+22);
+
+  // axes
   ctx.fillStyle=C.mute; ctx.font='14px sans-serif'; ctx.textAlign='center';
   ctx.fillText('years  →', (x0+x1)/2, H-14);
   ctx.save(); ctx.translate(20,(y0+y1)/2); ctx.rotate(-Math.PI/2);
-  ctx.fillText('DRAM price ÷ total cost   ( >1 profit · <1 loss )',0,0); ctx.restore();
+  ctx.fillText('DRAM price ÷ total cost', 0, 0); ctx.restore();
 }
 
 function syncLabels(){
@@ -160,8 +185,10 @@ function syncLabels(){
 }
 function update(){syncLabels();draw();}
 ids.forEach(id=>document.getElementById(id).addEventListener('input',update));
+document.getElementById('compare').addEventListener('change',update);
 document.getElementById('reset').addEventListener('click',()=>{
-  ids.forEach(id=>document.getElementById(id).value=defaults[id]); update();
+  ids.forEach(id=>document.getElementById(id).value=defaults[id]);
+  document.getElementById('compare').checked=false; update();
 });
 update();
 </script>
