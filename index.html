@@ -23,9 +23,11 @@
   .ctrl label{display:flex;justify-content:space-between;font-size:13px;color:var(--mute);margin-bottom:6px;}
   .ctrl label b{color:var(--fg);font-variant-numeric:tabular-nums;}
   input[type=range]{width:100%;accent-color:var(--green);}
-  .row{display:flex;align-items:center;gap:18px;margin-top:18px;flex-wrap:wrap;}
+  .row{display:flex;align-items:center;gap:16px;margin-top:18px;flex-wrap:wrap;}
   .toggle{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--fg);cursor:pointer;}
   .toggle input{accent-color:var(--green);width:16px;height:16px;}
+  .mode{font-size:13px;color:var(--mute);}
+  .mode b{color:var(--fg);}
   .legend{display:flex;gap:18px;font-size:13px;color:var(--mute);margin:14px 0 0;flex-wrap:wrap;}
   .legend span{display:inline-flex;align-items:center;gap:6px;}
   .sw{width:14px;height:11px;border-radius:3px;display:inline-block;}
@@ -51,8 +53,9 @@
     </div>
 
     <div class="row">
-      <label class="toggle"><input type="checkbox" id="compare"> Compare to the fragmented 1990s (no wafer-cut discipline)</label>
-      <button id="reset">Reset</button>
+      <label class="toggle"><input type="checkbox" id="disc" checked> Big-3 wafer-cut discipline (post-2013)</label>
+      <span class="mode" id="modeTxt"></span>
+      <button id="reset" style="margin-left:auto">Reset</button>
     </div>
 
     <div class="controls">
@@ -61,16 +64,17 @@
       <div class="ctrl"><label>Capex chases price (greed) <b id="vCx"></b></label><input id="cx" type="range" min="8" max="22" value="13"></div>
       <div class="ctrl"><label>Capex lag (years) <b id="vLag"></b></label><input id="lag" type="range" min="1" max="4" value="2"></div>
       <div class="ctrl"><label>Cash-cost floor (× total cost) <b id="vCash"></b></label><input id="cash" type="range" min="40" max="80" value="60"></div>
-      <div class="ctrl"><label>AI-style demand boom <b id="vBoom"></b></label><input id="boom" type="range" min="0" max="30" value="16"></div>
+      <div class="ctrl"><label>AI-style demand boom (2024) <b id="vBoom"></b></label><input id="boom" type="range" min="0" max="30" value="16"></div>
       <div class="ctrl"><label>Demand air-pocket (downturn) <b id="vBust"></b></label><input id="bust" type="range" min="0" max="35" value="22"></div>
     </div>
 
     <div class="note">
       <b>Read it like this:</b> green = makers printing money, red = makers bleeding (selling below total cost).
-      A demand <b>boom</b> spikes the price → everyone builds fabs → that capacity lands <i>years late</i> → <b>glut</b>
-      → price crashes into the red → recovery overshoots into the next boom. Crank <b>capex lag</b> or <b>greed</b> up
-      and the swings get wilder — the lag <i>is</i> the engine. Tick "compare" to see how the fragmented 1990s rode the
-      busts all the way down (dashed), vs today's Big-3 cutting wafers at the floor.
+      A demand <b>boom</b> (the AI spike at 2024) sends price up → everyone builds fabs → that capacity lands
+      <i>~2 years late</i> → <b>glut</b> → price crashes into the red → recovery overshoots into the next cycle.
+      Crank <b>capex lag</b> or <b>greed</b> up and the swings get wilder — the lag <i>is</i> the engine.
+      Untick <b>discipline</b> to see the pre-2013 fragmented era, where nobody cut supply and the busts ran far deeper.
+      <br><i>Illustrative toy model — shows the mechanism, not a forecast.</i>
     </div>
   </div>
 
@@ -81,7 +85,7 @@
 </div>
 
 <script>
-const T = 26;
+const T = 26, YEAR0 = 2015, BOOM_YR = 9;   // boom at index 9 -> year 2024
 const defaults = {baseG:20,E:24,cx:13,lag:2,cash:60,boom:16,bust:22};
 const ids = Object.keys(defaults);
 const cv = document.getElementById('chart'), ctx = cv.getContext('2d');
@@ -92,9 +96,9 @@ function P(){return {
 };}
 
 function simulate(p, discipline){
-  const LAG=p.lag, boomYr=9, bustYr=13;
+  const LAG=p.lag, bustYr=13;
   const dg=new Array(T).fill(p.baseG);
-  dg[boomYr]+=p.boom; dg[boomYr+1]+=p.boom; dg[bustYr]-=p.bust;
+  dg[BOOM_YR]+=p.boom; dg[BOOM_YR+1]+=p.boom; dg[bustYr]-=p.bust;
   const demand=new Array(T).fill(1);
   for(let t=1;t<T;t++) demand[t]=demand[t-1]*(1+dg[t]);
   const cap=new Array(T).fill(1), Pr=new Array(T).fill(1), util=new Array(T).fill(1);
@@ -112,31 +116,28 @@ function simulate(p, discipline){
   return Pr;
 }
 
-let geo;
 function draw(){
-  const p=P();
+  const p=P(), disc=document.getElementById('disc').checked;
   const c=getComputedStyle(document.documentElement);
   const C={green:c.getPropertyValue('--green').trim(),red:c.getPropertyValue('--red').trim(),
            grey:c.getPropertyValue('--grey').trim(),fg:c.getPropertyValue('--fg').trim(),
            mute:c.getPropertyValue('--mute').trim(),bg:c.getPropertyValue('--bg').trim()};
-  const W=cv.width,H=cv.height, m={l:74,r:120,t:30,b:52};
+  const W=cv.width,H=cv.height, m={l:74,r:120,t:30,b:54};
   const x0=m.l,x1=W-m.r,y0=H-m.b,y1=m.t, yMin=0.3,yMax=2.0;
   const X=t=>x0+(x1-x0)*t/(T-1);
   const Y=v=>y0+(y1-y0)*(v-yMin)/(yMax-yMin);
-  geo={X,Y,x0,x1,y0,y1};
   ctx.clearRect(0,0,W,H); ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
   const yTot=Y(1.0);
+  const line=simulate(p,disc);
 
-  const green=simulate(p,true);
-
-  // area to baseline, two-colour split at total cost via clipping
+  // two-colour profit/loss fill, split at total cost via clipping
   function areaPath(arr){ctx.beginPath();
     arr.forEach((v,t)=>{const xx=X(t),yy=Y(v);t?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);});
     ctx.lineTo(X(T-1),yTot); ctx.lineTo(X(0),yTot); ctx.closePath();}
   ctx.save(); ctx.beginPath(); ctx.rect(x0,y1,x1-x0,yTot-y1); ctx.clip();
-  areaPath(green); ctx.fillStyle='rgba(22,199,132,0.30)'; ctx.fill(); ctx.restore();
+  areaPath(line); ctx.fillStyle='rgba(22,199,132,0.32)'; ctx.fill(); ctx.restore();
   ctx.save(); ctx.beginPath(); ctx.rect(x0,yTot,x1-x0,y0-yTot); ctx.clip();
-  areaPath(green); ctx.fillStyle='rgba(234,57,67,0.30)'; ctx.fill(); ctx.restore();
+  areaPath(line); ctx.fillStyle='rgba(234,57,67,0.32)'; ctx.fill(); ctx.restore();
 
   // reference lines
   ctx.setLineDash([7,6]); ctx.lineWidth=2;
@@ -151,30 +152,40 @@ function draw(){
   ctx.fillStyle=C.mute; ctx.font='13px sans-serif'; ctx.textAlign='right';
   [0.5,1.0,1.5,2.0].forEach(v=>ctx.fillText(v.toFixed(1)+'×', x0-10, Y(v)));
 
-  // optional fragmented comparison (dashed)
-  if(document.getElementById('compare').checked){
-    const red=simulate(p,false);
-    ctx.setLineDash([8,6]); ctx.strokeStyle=C.red; ctx.lineWidth=2.4; ctx.lineJoin='round';
-    ctx.beginPath(); red.forEach((v,t)=>{const xx=X(t),yy=Y(v);t?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);}); ctx.stroke();
-    ctx.setLineDash([]);
+  // x ticks = real years
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  for(let yr=YEAR0; yr<=YEAR0+T-1; yr+=5){
+    const t=yr-YEAR0; ctx.strokeStyle=C.line; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(X(t),y0); ctx.lineTo(X(t),y0+5); ctx.stroke();
+    ctx.fillStyle=C.mute; ctx.fillText(yr, X(t), y0+9);
   }
 
-  // hero line (consolidated, today)
-  ctx.strokeStyle=C.fg; ctx.lineWidth=3.4; ctx.lineJoin='round';
-  ctx.beginPath(); green.forEach((v,t)=>{const xx=X(t),yy=Y(v);t?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);}); ctx.stroke();
+  // AI boom marker
+  const bx=X(BOOM_YR);
+  ctx.strokeStyle='rgba(139,148,158,0.5)'; ctx.setLineDash([4,4]); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(bx,y1); ctx.lineTo(bx,y0); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle=C.mute; ctx.font='12px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+  ctx.fillText('AI demand boom', bx, y1+14);
 
-  // dynamic phase labels: peak = BOOM, trough = GLUT
+  // hero line
+  ctx.strokeStyle=C.fg; ctx.lineWidth=3.4; ctx.lineJoin='round'; ctx.textBaseline='alphabetic';
+  ctx.beginPath(); line.forEach((v,t)=>{const xx=X(t),yy=Y(v);t?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);}); ctx.stroke();
+
+  // dynamic phase labels
   let iMax=1,iMin=1;
-  for(let t=2;t<T;t++){if(green[t]>green[iMax])iMax=t; if(green[t]<green[iMin])iMin=t;}
+  for(let t=2;t<T;t++){if(line[t]>line[iMax])iMax=t; if(line[t]<line[iMin])iMin=t;}
   ctx.textAlign='center'; ctx.font='bold 14px sans-serif';
-  ctx.fillStyle=C.green; ctx.fillText('▲ BOOM', X(iMax), Y(green[iMax])-14);
-  ctx.fillStyle=C.red;   ctx.fillText('▼ GLUT', X(iMin), Y(green[iMin])+22);
+  ctx.fillStyle=C.green; ctx.fillText('▲ BOOM', X(iMax), Y(line[iMax])-14);
+  ctx.fillStyle=C.red;   ctx.fillText('▼ GLUT', X(iMin), Y(line[iMin])+24);
 
-  // axes
-  ctx.fillStyle=C.mute; ctx.font='14px sans-serif'; ctx.textAlign='center';
-  ctx.fillText('years  →', (x0+x1)/2, H-14);
+  // axis title
+  ctx.fillStyle=C.mute; ctx.font='14px sans-serif';
   ctx.save(); ctx.translate(20,(y0+y1)/2); ctx.rotate(-Math.PI/2);
   ctx.fillText('DRAM price ÷ total cost', 0, 0); ctx.restore();
+
+  document.getElementById('modeTxt').innerHTML = disc
+    ? "mode: <b>disciplined</b> (today's Big-3 — shallower busts)"
+    : "mode: <b>free-for-all</b> (pre-2013 — deeper busts)";
 }
 
 function syncLabels(){
@@ -185,10 +196,10 @@ function syncLabels(){
 }
 function update(){syncLabels();draw();}
 ids.forEach(id=>document.getElementById(id).addEventListener('input',update));
-document.getElementById('compare').addEventListener('change',update);
+document.getElementById('disc').addEventListener('change',update);
 document.getElementById('reset').addEventListener('click',()=>{
   ids.forEach(id=>document.getElementById(id).value=defaults[id]);
-  document.getElementById('compare').checked=false; update();
+  document.getElementById('disc').checked=true; update();
 });
 update();
 </script>
