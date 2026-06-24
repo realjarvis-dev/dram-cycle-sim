@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>DRAM Cycle Simulator — why memory booms & busts</title>
+<meta name="description" content="An interactive toy model: see how DRAM's 2-year capex lag forces a boom-bust cycle. Drag the sliders."/>
+<meta property="og:title" content="DRAM Cycle Simulator"/>
+<meta property="og:description" content="Why memory is doomed to boom & bust — drag the sliders."/>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--line:#22272e;--fg:#e6edf3;--mute:#8b949e;
+        --green:#16c784;--red:#ea3943;--grey:#8a8f98;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"DejaVu Sans",sans-serif;}
+  .wrap{max-width:1000px;margin:0 auto;padding:28px 20px 60px;}
+  h1{font-size:26px;margin:0 0 6px;font-weight:800;}
+  .sub{color:var(--mute);font-size:15px;margin:0 0 22px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;}
+  canvas{width:100%;height:auto;display:block;}
+  .controls{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 28px;margin-top:20px;}
+  @media(max-width:640px){.controls{grid-template-columns:1fr}}
+  .ctrl label{display:flex;justify-content:space-between;font-size:13px;color:var(--mute);margin-bottom:6px;}
+  .ctrl label b{color:var(--fg);font-variant-numeric:tabular-nums;}
+  input[type=range]{width:100%;accent-color:var(--green);}
+  .row{display:flex;align-items:center;gap:18px;margin-top:18px;flex-wrap:wrap;}
+  .toggle{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--fg);}
+  .legend{display:flex;gap:18px;font-size:13px;color:var(--mute);margin:14px 0 0;flex-wrap:wrap;}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .sw{width:14px;height:4px;border-radius:2px;display:inline-block;}
+  button{background:#21262d;color:var(--fg);border:1px solid var(--line);border-radius:8px;
+         padding:8px 14px;font-size:13px;cursor:pointer;}
+  button:hover{border-color:var(--green);}
+  .foot{color:#586069;font-size:12px;margin-top:26px;display:flex;justify-content:space-between;}
+  a{color:var(--green);text-decoration:none;}
+  .note{color:var(--mute);font-size:13px;line-height:1.5;margin-top:16px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>DRAM Cycle Simulator</h1>
+  <p class="sub">Why memory is doomed to boom &amp; bust — the cycle isn't bad luck, it's the structure. Drag the sliders.</p>
+
+  <div class="card">
+    <canvas id="chart" width="1280" height="640"></canvas>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--green)"></i> consolidated Big-3 (wafer-cut discipline)</span>
+      <span><i class="sw" style="background:var(--red)"></i> fragmented (no discipline, 1990s)</span>
+      <span><i class="sw" style="background:var(--grey)"></i> total cost</span>
+      <span><i class="sw" style="background:var(--red);opacity:.5"></i> loss zone (price &lt; total cost)</span>
+    </div>
+
+    <div class="controls">
+      <div class="ctrl"><label>Demand bit-growth / yr <b id="vBaseG"></b></label><input id="baseG" type="range" min="8" max="35" value="20"></div>
+      <div class="ctrl"><label>Price sensitivity (elasticity) <b id="vE"></b></label><input id="E" type="range" min="15" max="35" value="24"></div>
+      <div class="ctrl"><label>Capex chases price (greed) <b id="vCx"></b></label><input id="cx" type="range" min="8" max="22" value="13"></div>
+      <div class="ctrl"><label>Capex lag (years) <b id="vLag"></b></label><input id="lag" type="range" min="1" max="4" value="2"></div>
+      <div class="ctrl"><label>Cash-cost floor (× total cost) <b id="vCash"></b></label><input id="cash" type="range" min="40" max="80" value="60"></div>
+      <div class="ctrl"><label>AI-style demand boom <b id="vBoom"></b></label><input id="boom" type="range" min="0" max="30" value="16"></div>
+      <div class="ctrl"><label>Demand air-pocket (downturn) <b id="vBust"></b></label><input id="bust" type="range" min="0" max="35" value="22"></div>
+      <div class="ctrl" style="display:flex;align-items:flex-end;">
+        <button id="reset">Reset to defaults</button>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>What you're seeing:</b> a demand boom spikes price above total cost (fat margins) →
+      everyone builds fabs → that capacity lands <i>years late</i> → glut → price crashes into the
+      loss zone. The green line (today's Big-3) cuts wafers near the cash-cost floor, shaving the
+      trough; the red line (the fragmented 1990s) rides it all the way down. Crank the <b>capex lag</b>
+      or <b>greed</b> up and watch the cycle get more violent — the lag <i>is</i> the engine.
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>toy model · illustrative, not advice · not calibrated</span>
+    <span><a href="https://x.com/agentprompt">@agentprompt</a></span>
+  </div>
+</div>
+
+<script>
+const T = 26;
+const defaults = {baseG:20,E:24,cx:13,lag:2,cash:60,boom:16,bust:22};
+const ids = Object.keys(defaults);
+const cv = document.getElementById('chart'), ctx = cv.getContext('2d');
+
+function P(){return {
+  baseG:+baseG.value/100, E:+E.value/10, capexSens:+cx.value/10,
+  lag:+lag.value, cash:+cash.value/100, boom:+boom.value/100, bust:+bust.value/100
+};}
+
+function simulate(p, discipline){
+  const LAG=p.lag, boomYr=9, bustYr=13;
+  const dg=new Array(T).fill(p.baseG);
+  dg[boomYr]+=p.boom; dg[boomYr+1]+=p.boom; dg[bustYr]-=p.bust;
+  const demand=new Array(T).fill(1);
+  for(let t=1;t<T;t++) demand[t]=demand[t-1]*(1+dg[t]);
+  const cap=new Array(T).fill(1), Pr=new Array(T).fill(1), util=new Array(T).fill(1);
+  const adds=new Array(T+LAG).fill(p.baseG);
+  for(let t=1;t<T;t++){
+    cap[t]=cap[t-1]+adds[t];
+    if(discipline && Pr[t-1] < p.cash*1.05) util[t]=0.86;
+    const supply=cap[t]*util[t];
+    let price=Math.pow(demand[t]/supply, p.E);
+    price=Math.min(2.0, Math.max(0.30, price));
+    Pr[t]=price;
+    const signal=0.5*(Pr[t]+Pr[t-1]);
+    adds[t+LAG]=cap[t]*p.baseG*Math.pow(signal, p.capexSens);
+  }
+  return Pr;
+}
+
+function draw(){
+  const p=P();
+  const css=getComputedStyle(document.documentElement);
+  const C={green:css.getPropertyValue('--green').trim(),red:css.getPropertyValue('--red').trim(),
+           grey:css.getPropertyValue('--grey').trim(),fg:css.getPropertyValue('--fg').trim(),
+           mute:css.getPropertyValue('--mute').trim(),bg:css.getPropertyValue('--bg').trim()};
+  const W=cv.width,H=cv.height, m={l:70,r:140,t:24,b:50};
+  const x0=m.l,x1=W-m.r,y0=H-m.b,y1=m.t;
+  const yMin=0.3,yMax=2.0;
+  const X=t=>x0+(x1-x0)*t/(T-1);
+  const Y=v=>y0+(y1-y0)*(v-yMin)/(yMax-yMin);
+  ctx.clearRect(0,0,W,H); ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+
+  // loss band (cash..total)
+  ctx.fillStyle='rgba(234,57,67,0.10)';
+  ctx.fillRect(x0, Y(1.0), x1-x0, Y(p.cash)-Y(1.0));
+  // reference lines
+  ctx.setLineDash([7,6]); ctx.lineWidth=2;
+  ctx.strokeStyle=C.grey; ctx.beginPath(); ctx.moveTo(x0,Y(1.0)); ctx.lineTo(x1,Y(1.0)); ctx.stroke();
+  ctx.strokeStyle=C.red;  ctx.beginPath(); ctx.moveTo(x0,Y(p.cash)); ctx.lineTo(x1,Y(p.cash)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle=C.grey; ctx.font='15px sans-serif'; ctx.textBaseline='middle';
+  ctx.fillText('total cost', x1+10, Y(1.0));
+  ctx.fillStyle=C.red; ctx.fillText('cash-cost floor', x1+10, Y(p.cash));
+
+  // y ticks
+  ctx.fillStyle=C.mute; ctx.font='13px sans-serif'; ctx.textAlign='right';
+  [0.5,1.0,1.5,2.0].forEach(v=>ctx.fillText(v.toFixed(1)+'×', x0-10, Y(v)));
+  ctx.textAlign='left';
+
+  const plot=(arr,color,w)=>{ctx.strokeStyle=color;ctx.lineWidth=w;ctx.lineJoin='round';
+    ctx.beginPath();arr.forEach((v,t)=>{const xx=X(t),yy=Y(v);t?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);});ctx.stroke();};
+  plot(simulate(p,false), C.red, 3);
+  plot(simulate(p,true),  C.green, 3.6);
+
+  // axis labels
+  ctx.fillStyle=C.mute; ctx.font='14px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('years  →', (x0+x1)/2, H-14);
+  ctx.save(); ctx.translate(20,(y0+y1)/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('DRAM price ÷ total cost   ( >1 profit · <1 loss )',0,0); ctx.restore();
+}
+
+function syncLabels(){
+  vBaseG.textContent=(+baseG.value)+'%'; vE.textContent=(+E.value/10).toFixed(1);
+  vCx.textContent=(+cx.value/10).toFixed(1); vLag.textContent=lag.value+'y';
+  vCash.textContent=(+cash.value/100).toFixed(2)+'×';
+  vBoom.textContent='+'+(+boom.value)+'%'; vBust.textContent='-'+(+bust.value)+'%';
+}
+function update(){syncLabels();draw();}
+ids.forEach(id=>document.getElementById(id).addEventListener('input',update));
+document.getElementById('reset').addEventListener('click',()=>{
+  ids.forEach(id=>document.getElementById(id).value=defaults[id]); update();
+});
+update();
+</script>
+</body>
+</html>
